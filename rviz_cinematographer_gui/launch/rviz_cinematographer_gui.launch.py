@@ -33,10 +33,11 @@ def generate_launch_description():
         arguments=['-d', LaunchConfiguration('rviz_config')],
     )
 
+    # No node name: rqt names its node itself, and a name would make launch append
+    # "--ros-args -r __node:=..." behind "--args", i.e. into the plugin arguments.
     gui = Node(
         package='rqt_gui',
         executable='rqt_gui',
-        name='rviz_cinematographer_gui',
         output='screen',
         arguments=[
             '-s', 'rviz_cinematographer_gui/RvizCinematographerGUI',

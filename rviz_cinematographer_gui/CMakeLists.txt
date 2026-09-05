@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 project(rviz_cinematographer_gui)
 
 if(NOT CMAKE_CXX_STANDARD)

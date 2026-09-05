@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 project(video_recorder)
 
 if(NOT CMAKE_CXX_STANDARD)
