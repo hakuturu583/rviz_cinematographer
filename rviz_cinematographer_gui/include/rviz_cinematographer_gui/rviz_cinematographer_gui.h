@@ -20,6 +20,7 @@
 
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Vector3.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <geometry_msgs/msg/pose.hpp>
 #include <geometry_msgs/msg/pose_array.hpp>
@@ -45,14 +46,12 @@
 #include <QWidget>
 #include <QFileDialog>
 #include <QDoubleSpinBox>
-#include <QPushButton>
 
 #include <rviz_cinematographer_gui/utils.h>
 #include <ui_rviz_cinematographer_gui.h>
 
 #include <yaml-cpp/yaml.h>
 
-#include <spline_library/splines/natural_spline.h>
 #include <spline_library/splines/uniform_cr_spline.h>
 #include <spline_library/vector.h>
 
@@ -140,9 +139,6 @@ public:
    * @param[in] cam_pose    pointer to current camera pose.
    */
   void camPoseCallback(const geometry_msgs::msg::Pose::ConstSharedPtr cam_pose);
-
-Q_SIGNALS:
-  void updateRequested();
 
 public Q_SLOTS:
   /** @brief Moves rviz camera to currently selected pose.*/
@@ -400,13 +396,30 @@ private:
   bool loadTrajectoryFromTxt(const std::string& file_path);
 
   /**
-   * @brief Wraps a callback that is called from the ROS spinner thread so that it is executed in the GUI thread.
+   * @brief Executes the function in the GUI thread.
+   *
+   * ROS callbacks are called from the spinner thread and must use this to touch Qt widgets or the markers.
+   *
+   * @param[in] function    function that should be executed in the GUI thread.
+   */
+  void postToGuiThread(std::function<void()> function);
+
+  /**
+   * @brief Wraps an interactive marker callback so that it is executed in the GUI thread.
    *
    * @param[in] callback    callback that should be executed in the GUI thread.
    * @return wrapped callback.
    */
   std::function<void(const FeedbackConstPtr&)> inGuiThread(
     std::function<void(const FeedbackConstPtr&)> callback);
+
+  /**
+   * @brief Finds the marker with the specified name.
+   *
+   * @param[in] marker_name name of marker.
+   * @return iterator to the marker or markers_.end() if there is none.
+   */
+  MarkerIterator findMarker(const std::string& marker_name);
 
   /**
    * @brief Gets marker with specified name.
@@ -537,14 +550,8 @@ private:
   /** @brief Returns index of marker with marker_name. */
   int getMarkerId(const std::string& marker_name){return std::stoi(marker_name) - 1;};
 
-  /** @brief Clicks the button.
-   *
-   * Detour is necessary because the time table has to be updated which is only possible from the main thread
-   */
-  void clickButton(QPushButton* button){button->click();};
-
   /** @brief Returns the logger of the node. */
-  rclcpp::Logger getLogger();
+  rclcpp::Logger getLogger(){return node_->get_logger();};
 
   /** @brief Ui object - connection to GUI. */
   Ui::rviz_cinematographer_gui ui_;
@@ -572,6 +579,9 @@ private:
   /** @brief Thread spinning the video recorder executor. */
   std::thread video_recorder_thread_;
 
+  /** @brief Callback for the interactive markers - executed in the GUI thread. */
+  interactive_markers::InteractiveMarkerServer::FeedbackCallback marker_feedback_callback_;
+
   /** @brief Connects markers to callbacks. */
   interactive_markers::MenuHandler menu_handler_;
   /** @brief Stores markers - needed for #menu_handler. */
@@ -585,9 +595,6 @@ private:
 
   /** @brief Currently maintained list of TimedMarkers. */
   MarkerList markers_;
-
-  /** @brief True if recorder is running. */
-  bool recorder_running_;
 };
 
 } // namespace

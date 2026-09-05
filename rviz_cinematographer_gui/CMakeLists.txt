@@ -10,9 +10,6 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra)
 endif()
 
-# Find includes in corresponding build directories (needed for ui_*.h)
-set(CMAKE_INCLUDE_CURRENT_DIR ON)
-
 find_package(ament_cmake REQUIRED)
 find_package(ament_index_cpp REQUIRED)
 find_package(rclcpp REQUIRED)
@@ -21,6 +18,7 @@ find_package(qt_gui_cpp REQUIRED)
 find_package(rqt_gui_cpp REQUIRED)
 find_package(interactive_markers REQUIRED)
 find_package(tf2 REQUIRED)
+find_package(tf2_geometry_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
@@ -61,13 +59,13 @@ add_library(rviz_cinematographer_gui_plugin SHARED
   src/rviz_cinematographer_gui.cpp
 )
 
-target_include_directories(rviz_cinematographer_gui_plugin PUBLIC
-  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
-  "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>"
-  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>"
+# the plugin is loaded via pluginlib only - nothing links against it, so no interface is exported
+target_include_directories(rviz_cinematographer_gui_plugin PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-target_link_libraries(rviz_cinematographer_gui_plugin PUBLIC
+target_link_libraries(rviz_cinematographer_gui_plugin PRIVATE
   ament_index_cpp::ament_index_cpp
   rclcpp::rclcpp
   pluginlib::pluginlib
@@ -75,6 +73,7 @@ target_link_libraries(rviz_cinematographer_gui_plugin PUBLIC
   ${rqt_gui_cpp_TARGETS}
   interactive_markers::interactive_markers
   tf2::tf2
+  ${tf2_geometry_msgs_TARGETS}
   ${geometry_msgs_TARGETS}
   ${nav_msgs_TARGETS}
   ${std_msgs_TARGETS}
@@ -90,15 +89,9 @@ pluginlib_export_plugin_description_file(rqt_gui "plugin.xml")
 
 install(
   TARGETS rviz_cinematographer_gui_plugin
-  EXPORT export_${PROJECT_NAME}
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
-)
-
-install(
-  DIRECTORY include/
-  DESTINATION include/${PROJECT_NAME}
 )
 
 install(FILES plugin.xml
@@ -108,24 +101,6 @@ install(FILES plugin.xml
 install(
   DIRECTORY launch trajectories icons
   DESTINATION share/${PROJECT_NAME}
-)
-
-ament_export_include_directories("include/${PROJECT_NAME}")
-ament_export_targets(export_${PROJECT_NAME})
-ament_export_dependencies(
-  ament_index_cpp
-  rclcpp
-  pluginlib
-  qt_gui_cpp
-  rqt_gui_cpp
-  interactive_markers
-  tf2
-  geometry_msgs
-  nav_msgs
-  std_msgs
-  visualization_msgs
-  rviz_cinematographer_msgs
-  video_recorder
 )
 
 ament_package()

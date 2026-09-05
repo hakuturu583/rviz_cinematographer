@@ -5,7 +5,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration, PythonExpression
+from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
 
@@ -33,9 +33,6 @@ def generate_launch_description():
         arguments=['-d', LaunchConfiguration('rviz_config')],
     )
 
-    recorder_flag = PythonExpression(
-        ["'' if '", LaunchConfiguration('start_recorder'), "' == 'true' else '--no-recorder'"])
-
     gui = Node(
         package='rqt_gui',
         executable='rqt_gui',
@@ -45,7 +42,7 @@ def generate_launch_description():
             '-s', 'rviz_cinematographer_gui/RvizCinematographerGUI',
             '--args',
             '--trajectory-file', LaunchConfiguration('trajectory_file'),
-            recorder_flag,
+            '--start-recorder', LaunchConfiguration('start_recorder'),
         ],
     )
 

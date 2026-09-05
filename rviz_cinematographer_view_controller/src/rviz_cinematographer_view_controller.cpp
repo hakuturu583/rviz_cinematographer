@@ -34,7 +34,6 @@
 #include <cstring>
 #include <functional>
 #include <iterator>
-#include <thread>
 
 #include <OgreCommon.h>
 #include <OgreMath.h>
@@ -108,8 +107,7 @@ CinematographerViewController::CinematographerViewController()
     , render_frame_by_frame_(false)
     , target_fps_(60)
     , recorded_frames_counter_(0)
-    , do_wait_(false)
-    , wait_duration_(-1.f)
+    , render_paused_until_(WallClock::now())
 {
   interaction_disabled_cursor_ = rviz_common::makeIconCursor("package://rviz_common/icons/forbidden.svg");
 
@@ -157,55 +155,48 @@ rclcpp::Node::SharedPtr CinematographerViewController::getNode()
   return ros_node_abstraction->get_raw_node();
 }
 
+void CinematographerViewController::deferToUpdate(std::function<void()> action)
+{
+  std::lock_guard<std::mutex> lock(deferred_mutex_);
+  deferred_actions_.push_back(std::move(action));
+}
+
+void CinematographerViewController::processDeferredActions()
+{
+  std::vector<std::function<void()>> actions;
+  {
+    std::lock_guard<std::mutex> lock(deferred_mutex_);
+    actions.swap(deferred_actions_);
+  }
+
+  for(const auto& action : actions)
+    action();
+}
+
 void CinematographerViewController::setRecord(const rviz_cinematographer_msgs::msg::Record::ConstSharedPtr record_params)
 {
-  std::lock_guard<std::mutex> lock(pending_mutex_);
-  pending_records_.push_back(*record_params);
+  deferToUpdate([this, record_params]()
+  {
+    render_frame_by_frame_ = record_params->do_record;
+
+    const int max_fps = record_params->compress ? 120 : 60;
+    target_fps_ = std::max(1, std::min(max_fps, static_cast<int>(record_params->frames_per_second)));
+  });
 }
 
 void CinematographerViewController::setWaitDuration(const rviz_cinematographer_msgs::msg::Wait::ConstSharedPtr wait_duration)
 {
-  std::lock_guard<std::mutex> lock(pending_mutex_);
-  pending_waits_.push_back(*wait_duration);
+  deferToUpdate([this, wait_duration]()
+  {
+    if(wait_duration->seconds > 0.f)
+      render_paused_until_ = WallClock::now() + std::chrono::duration_cast<WallClock::duration>(
+        std::chrono::duration<float>(wait_duration->seconds));
+  });
 }
 
 void CinematographerViewController::cameraTrajectoryCallback(const rviz_cinematographer_msgs::msg::CameraTrajectory::ConstSharedPtr ct_ptr)
 {
-  std::lock_guard<std::mutex> lock(pending_mutex_);
-  pending_trajectories_.push_back(*ct_ptr);
-}
-
-void CinematographerViewController::processPendingMessages()
-{
-  std::vector<rviz_cinematographer_msgs::msg::Record> records;
-  std::vector<rviz_cinematographer_msgs::msg::Wait> waits;
-  std::vector<rviz_cinematographer_msgs::msg::CameraTrajectory> trajectories;
-  {
-    std::lock_guard<std::mutex> lock(pending_mutex_);
-    records.swap(pending_records_);
-    waits.swap(pending_waits_);
-    trajectories.swap(pending_trajectories_);
-  }
-
-  for(const auto& record_params : records)
-  {
-    render_frame_by_frame_ = record_params.do_record;
-
-    int max_fps = 120;
-    if(!record_params.compress)
-      max_fps = 60;
-
-    target_fps_ = std::max(1, std::min(max_fps, static_cast<int>(record_params.frames_per_second)));
-  }
-
-  for(const auto& wait_duration : waits)
-  {
-    wait_duration_ = wait_duration.seconds;
-    do_wait_ = true;
-  }
-
-  for(auto& trajectory : trajectories)
-    processCameraTrajectory(std::move(trajectory));
+  deferToUpdate([this, ct_ptr]() { processCameraTrajectory(*ct_ptr); });
 }
 
 void CinematographerViewController::updateTopics()
@@ -248,10 +239,7 @@ void CinematographerViewController::onInitialize()
   focal_shape_->setColor(1.0f, 1.0f, 0.0f, 0.5f);
   focal_shape_->getRootNode()->setVisible(false);
 
-  unsigned int width = 0, height = 0;
-  getRenderWindowSize(width, height);
-  window_width_property_->setFloat(static_cast<float>(width));
-  window_height_property_->setFloat(static_cast<float>(height));
+  updateWindowSizeProperties(getOgreViewport());
 
   auto node = getNode();
   if(!node)
@@ -337,12 +325,8 @@ void CinematographerViewController::onUpPropertyChanged()
   }
   else
   {
-    // force orientation to match up vector; first call doesn't actually change the quaternion
-    camera_scene_node_->setFixedYawAxis(true, reference_orientation_ * up_vector_property_->getVector());
-    camera_scene_node_->setDirection(focus_point_property_->getVector() - eye_point_property_->getVector(),
-                                     Ogre::Node::TS_PARENT);
-    // restore normal behavior
-    camera_scene_node_->setFixedYawAxis(false);
+    // force orientation to match up vector, then restore normal behavior
+    orientCameraTowardsFocus(false);
   }
   connect(up_vector_property_, SIGNAL(changed()), this, SLOT(onUpPropertyChanged()), Qt::UniqueConnection);
 }
@@ -391,10 +375,18 @@ void CinematographerViewController::onAttachedFrameChanged(const Ogre::Vector3& 
   up_vector_property_->setVector(fixed_up_property_->getBool() ? Ogre::Vector3::UNIT_Z : new_up_vector);
   distance_property_->setFloat(getDistanceFromCameraToFocalPoint());
 
-  // force orientation to match up vector; first call doesn't actually change the quaternion
+  // force orientation to match up vector
+  orientCameraTowardsFocus(true);
+}
+
+void CinematographerViewController::orientCameraTowardsFocus(bool fixed_yaw_axis)
+{
+  // the yaw axis is given in world space, the direction in the space of the attached frame
   camera_scene_node_->setFixedYawAxis(true, reference_orientation_ * up_vector_property_->getVector());
   camera_scene_node_->setDirection(focus_point_property_->getVector() - eye_point_property_->getVector(),
                                    Ogre::Node::TS_PARENT);
+  if(!fixed_yaw_axis)
+    camera_scene_node_->setFixedYawAxis(false);
 }
 
 float CinematographerViewController::getDistanceFromCameraToFocalPoint()
@@ -481,10 +473,9 @@ void CinematographerViewController::handleMouseEvent(rviz_common::ViewportMouseE
       float fovY = camera_->getFOVy().valueRadians();
       float fovX = 2.0f * static_cast<float>(atan(tan(fovY / 2.0) * camera_->getAspectRatio()));
 
-      unsigned int width = 0, height = 0;
-      getRenderWindowSize(width, height);
-      width = std::max(1u, width);
-      height = std::max(1u, height);
+      Ogre::Viewport* viewport = getOgreViewport();
+      const int width = viewport ? std::max(1, viewport->getActualWidth()) : 1;
+      const int height = viewport ? std::max(1, viewport->getActualHeight()) : 1;
 
       move_focus_and_eye(-((float)diff_x / width) * distance * static_cast<float>(tan(fovX / 2.0)) * 2.0f,
                          ((float)diff_y / height) * distance * static_cast<float>(tan(fovY / 2.0)) * 2.0f,
@@ -644,6 +635,7 @@ void CinematographerViewController::beginNewTransition(const Ogre::Vector3& eye,
 
 void CinematographerViewController::publishFinishedRendering()
 {
+  publish_finished_at_.reset();
   if(finished_rendering_trajectory_pub_)
   {
     rviz_cinematographer_msgs::msg::Finished finished;
@@ -783,12 +775,21 @@ float CinematographerViewController::computeRelativeProgressInSpace(double relat
 
 void CinematographerViewController::update(float dt, float ros_dt)
 {
-  processPendingMessages();
+  processDeferredActions();
 
   updateAttachedSceneNode();
 
+  const WallClock::time_point now = WallClock::now();
+
+  // the recorder asked for a pause to process its queue - keep rendering but don't advance the animation
+  const bool render_paused = render_frame_by_frame_ && now < render_paused_until_;
+
+  // publish that the rendering is finished - delayed a little so the last image is sent before
+  if(publish_finished_at_ && now >= *publish_finished_at_)
+    publishFinishedRendering();
+
   // there has to be at least two positions in the buffer - start and goal
-  if(animate_ && cam_movements_buffer_.size() > 1)
+  if(animate_ && cam_movements_buffer_.size() > 1 && !render_paused)
   {
     auto start = cam_movements_buffer_.begin();
     auto goal = std::next(cam_movements_buffer_.begin());
@@ -801,7 +802,7 @@ void CinematographerViewController::update(float dt, float ros_dt)
     }
     else
     {
-      std::chrono::duration<double> duration_from_start = WallClock::now() - transition_start_time_;
+      std::chrono::duration<double> duration_from_start = now - transition_start_time_;
       relative_progress_in_time = duration_from_start.count() / goal->transition_duration;
     }
 
@@ -837,14 +838,12 @@ void CinematographerViewController::update(float dt, float ros_dt)
     connectPositionProperties();
 
     // This needs to happen so that the camera orientation will update properly when fixed_up_property == false
-    camera_scene_node_->setFixedYawAxis(true, reference_orientation_ * up_vector_property_->getVector());
-    camera_scene_node_->setDirection(focus_point_property_->getVector() - eye_point_property_->getVector(),
-                                     Ogre::Node::TS_PARENT);
+    orientCameraTowardsFocus(true);
 
     publishCameraPose();
 
     if(render_frame_by_frame_ && image_pub_.getNumSubscribers() > 0)
-      publishViewImage();
+      publishViewImage(getOgreViewport());
 
     // if current movement is over
     if(!animate_)
@@ -867,67 +866,41 @@ void CinematographerViewController::update(float dt, float ros_dt)
         // clean up
         cam_movements_buffer_.clear();
 
-        // publish that the rendering is finished
+        // publish that the rendering is finished - wait a little so the last image is sent before
         if(render_frame_by_frame_)
-        {
-          // wait a little so last image is send before this "finished"-message
-          std::this_thread::sleep_for(std::chrono::seconds(1));
-          publishFinishedRendering();
-        }
+          publish_finished_at_ = now + std::chrono::seconds(1);
       }
     }
   }
-  else
+  else if(!render_paused)
     transition_velocity_property_->setFloat(0.f);
 
   updateCamera();
 
-  unsigned int width = 0, height = 0;
-  getRenderWindowSize(width, height);
-  window_width_property_->setFloat(static_cast<float>(width));
-  window_height_property_->setFloat(static_cast<float>(height));
+  updateWindowSizeProperties(getOgreViewport());
 }
 
-void CinematographerViewController::getRenderWindowSize(unsigned int& width, unsigned int& height)
+Ogre::Viewport* CinematographerViewController::getOgreViewport()
 {
-  width = 0;
-  height = 0;
-
-  auto view_manager = context_->getViewManager();
-  if(!view_manager)
-    return;
-  auto render_panel = view_manager->getRenderPanel();
-  if(!render_panel)
-    return;
-  auto render_window = render_panel->getRenderWindow();
-  if(!render_window)
-    return;
-
-  Ogre::Viewport* viewport = rviz_rendering::RenderWindowOgreAdapter::getOgreViewport(render_window);
-  if(viewport)
-  {
-    width = static_cast<unsigned int>(viewport->getActualWidth());
-    height = static_cast<unsigned int>(viewport->getActualHeight());
-  }
-  else
-  {
-    width = static_cast<unsigned int>(render_window->width());
-    height = static_cast<unsigned int>(render_window->height());
-  }
-}
-
-void CinematographerViewController::publishViewImage()
-{
-  // wait for specified duration - e.g. if recorder is not fast enough
-  if(do_wait_)
-  {
-    if(wait_duration_ > 0.f)
-      std::this_thread::sleep_for(std::chrono::duration<float>(wait_duration_));
-    do_wait_ = false;
-  }
-
   auto render_window = context_->getViewManager()->getRenderPanel()->getRenderWindow();
-  Ogre::Viewport* viewport = rviz_rendering::RenderWindowOgreAdapter::getOgreViewport(render_window);
+  return render_window ? rviz_rendering::RenderWindowOgreAdapter::getOgreViewport(render_window) : nullptr;
+}
+
+void CinematographerViewController::updateWindowSizeProperties(Ogre::Viewport* viewport)
+{
+  if(!viewport)
+    return;
+
+  const float width = static_cast<float>(viewport->getActualWidth());
+  const float height = static_cast<float>(viewport->getActualHeight());
+  if(width != window_width_property_->getFloat())
+    window_width_property_->setFloat(width);
+  if(height != window_height_property_->getFloat())
+    window_height_property_->setFloat(height);
+}
+
+void CinematographerViewController::publishViewImage(Ogre::Viewport* viewport)
+{
   if(!viewport || !viewport->getTarget())
   {
     RCLCPP_ERROR_STREAM_THROTTLE(getLogger(), *context_->getClock(), 2000, "Render target not available. Can't publish view image.");
@@ -966,9 +939,7 @@ void CinematographerViewController::publishViewImage()
 void CinematographerViewController::updateCamera()
 {
   camera_scene_node_->setPosition(eye_point_property_->getVector());
-  camera_scene_node_->setFixedYawAxis(fixed_up_property_->getBool(), reference_orientation_ * up_vector_property_->getVector());
-  camera_scene_node_->setDirection(focus_point_property_->getVector() - eye_point_property_->getVector(),
-                                   Ogre::Node::TS_PARENT);
+  orientCameraTowardsFocus(fixed_up_property_->getBool());
 
   focal_shape_->setPosition(focus_point_property_->getVector());
 }

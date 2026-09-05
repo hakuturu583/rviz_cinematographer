@@ -36,8 +36,10 @@
 
 #include <chrono>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -45,6 +47,7 @@
 #include <OgreQuaternion.h>
 #include <OgreSceneNode.h>
 #include <OgreCamera.h>
+#include <OgreViewport.h>
 
 #include <QCursor>
 
@@ -90,15 +93,6 @@ public:
 
   struct OgreCameraMovement
   {
-    OgreCameraMovement()
-      : eye(Ogre::Vector3::ZERO)
-        , focus(Ogre::Vector3::ZERO)
-        , up(Ogre::Vector3::UNIT_Z)
-        , transition_duration(0.0)
-        , interpolation_speed(0)
-    {
-    }
-
     OgreCameraMovement(const Ogre::Vector3& eye,
                        const Ogre::Vector3& focus,
                        const Ogre::Vector3& up,
@@ -279,8 +273,16 @@ protected:  //methods
    */
   void processCameraTrajectory(rviz_cinematographer_msgs::msg::CameraTrajectory ct);
 
-  /** @brief Processes all messages that were received since the last call. */
-  void processPendingMessages();
+  /** @brief Defers an action to the next update() call, i.e. to the GUI thread.
+   *
+   * ROS callbacks are called from the spinner thread and must not touch the properties directly.
+   *
+   * @param[in] action  action to perform in update().
+   */
+  void deferToUpdate(std::function<void()> action);
+
+  /** @brief Performs all actions deferred since the last call, in arrival order. */
+  void processDeferredActions();
 
   /** @brief Transforms the camera movement into the attached frame.
    *
@@ -317,17 +319,23 @@ protected:  //methods
   /** @brief Publishes the camera pose. */
   void publishCameraPose();
 
-  /** @brief Sets parameters requested with service call.
+  /** @brief Sets parameters requested with a Record msg.
    *
    * @params[in] record_params  specifies that a record should be made and the parameters that should be used.
    */
   void setRecord(const rviz_cinematographer_msgs::msg::Record::ConstSharedPtr record_params);
 
-  /** @brief Sets the duration the rendering has to wait for.
+  /** @brief Pauses the frame by frame rendering for the requested duration - e.g. if the recorder is not fast enough.
    *
    * @params[in] wait_duration  duration to wait for.
    */
   void setWaitDuration(const rviz_cinematographer_msgs::msg::Wait::ConstSharedPtr wait_duration);
+
+  /** @brief Orients the camera to look from the eye to the focus point with the up vector as yaw axis.
+   *
+   * @params[in] fixed_yaw_axis   keep the yaw axis fixed after orienting the camera.
+   */
+  void orientCameraTowardsFocus(bool fixed_yaw_axis);
 
   Ogre::Vector3 fixedFrameToAttachedLocal(const Ogre::Vector3& v) { return reference_orientation_.Inverse() * (v - reference_position_); }
   Ogre::Vector3 attachedLocalToFixedFrame(const Ogre::Vector3& v) { return reference_position_ + (reference_orientation_ * v); }
@@ -342,17 +350,23 @@ protected:  //methods
    */
   float computeRelativeProgressInSpace(double relative_progress_in_time, uint8_t interpolation_speed);
 
-  /** @brief Publish the rendered image that is visible to the user in rviz. */
-  void publishViewImage();
+  /** @brief Publish the rendered image that is visible to the user in rviz.
+   *
+   * @params[in] viewport   the viewport whose render target is published.
+   */
+  void publishViewImage(Ogre::Viewport* viewport);
 
-  /** @brief Returns the size of the render window in pixels. */
-  void getRenderWindowSize(unsigned int& width, unsigned int& height);
+  /** @brief Returns the Ogre viewport of the render panel or nullptr if not available yet. */
+  Ogre::Viewport* getOgreViewport();
 
   /** @brief Convenience accessor to the raw rclcpp node used by rviz. */
   rclcpp::Node::SharedPtr getNode();
 
   /** @brief Publishes a finished message and leaves the recording mode. */
   void publishFinishedRendering();
+
+  /** @brief Updates the window size properties if the size changed. */
+  void updateWindowSizeProperties(Ogre::Viewport* viewport);
 
 protected:    //members
 
@@ -400,18 +414,18 @@ protected:    //members
   rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr delete_pub_;
   image_transport::Publisher image_pub_;
 
-  /// Messages received from the ROS spinner thread are queued here and processed in update().
-  std::mutex pending_mutex_;
-  std::vector<rviz_cinematographer_msgs::msg::CameraTrajectory> pending_trajectories_;
-  std::vector<rviz_cinematographer_msgs::msg::Record> pending_records_;
-  std::vector<rviz_cinematographer_msgs::msg::Wait> pending_waits_;
+  /// Actions deferred by ROS callbacks - performed in update() in arrival order.
+  std::mutex deferred_mutex_;
+  std::vector<std::function<void()>> deferred_actions_;
 
   bool render_frame_by_frame_;
   int target_fps_;
   int recorded_frames_counter_;
 
-  bool do_wait_;
-  float wait_duration_;
+  /// Frame by frame rendering is paused until this point in time (requested by the recorder).
+  WallClock::time_point render_paused_until_;
+  /// If set, the finished message is published once this point in time is reached.
+  std::optional<WallClock::time_point> publish_finished_at_;
 };
 
 }  // namespace rviz_cinematographer_view_controller

@@ -26,7 +26,7 @@ Alternatively, you can start the provided plugin inside rqt at any time to creat
 When starting the plugin standalone, a trajectory can be loaded and the recorder can be disabled using plugin arguments:
 
 ```
-$ ros2 run rqt_gui rqt_gui -s rviz_cinematographer_gui/RvizCinematographerGUI --args --trajectory-file /path/to/trajectory.yaml [--no-recorder]
+$ ros2 run rqt_gui rqt_gui -s rviz_cinematographer_gui/RvizCinematographerGUI --args --trajectory-file /path/to/trajectory.yaml --start-recorder false
 ```
 
 Some [remarks](README.md#remarks) for this use case are added after the tutorial section. 

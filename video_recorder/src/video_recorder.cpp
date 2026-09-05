@@ -29,7 +29,6 @@ VideoRecorder::VideoRecorder(const rclcpp::NodeOptions& options)
     , path_to_output_("")
     , codec_(cv::VideoWriter::fourcc('D', 'I', 'V', 'X'))
     , target_fps_(60)
-    , recorded_frames_counter_(0)
     , add_watermark_(true)
     , is_watermark_resized_(false)
 {
@@ -149,7 +148,6 @@ void VideoRecorder::finishRecording()
     std::lock_guard<std::mutex> lock(params_mutex_);
     if(output_video_.isOpened())
       output_video_.release();
-    recorded_frames_counter_ = 0;
   }
 
   // publish that recording is finished
@@ -201,7 +199,6 @@ void VideoRecorder::processImages()
           addWatermark(cv_ptr->image, resized_watermark_);
         }
         output_video_.write(cv_ptr->image);
-        recorded_frames_counter_++;
       }
 
       process_one_image_duration_ = std::chrono::steady_clock::now() - start;
