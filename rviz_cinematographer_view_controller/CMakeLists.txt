@@ -26,7 +26,6 @@ find_package(rviz_cinematographer_msgs REQUIRED)
 # Qt
 find_package(Qt5 REQUIRED COMPONENTS Core Widgets)
 set(CMAKE_AUTOMOC ON)
-add_definitions(-DQT_NO_KEYWORDS)
 
 add_library(${PROJECT_NAME} SHARED
   include/${PROJECT_NAME}/rviz_cinematographer_view_controller.h

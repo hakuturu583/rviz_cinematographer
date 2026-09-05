@@ -958,7 +958,7 @@ void CinematographerViewController::publishViewImage()
 
   Ogre::Box extents(0, 0, width, height);
   Ogre::PixelBox pb(extents, format, ros_image->data.data());
-  render_target->copyContentsToMemory(pb, Ogre::RenderTarget::FB_AUTO);
+  render_target->copyContentsToMemory(extents, pb, Ogre::RenderTarget::FB_AUTO);
 
   image_pub_.publish(ros_image);
 }
