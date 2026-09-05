@@ -1,61 +1,80 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.8)
 project(video_recorder)
 
-## Compile as C++11, supported in ROS Kinetic and newer
-add_compile_options(-std=c++11)
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+endif()
 
-find_package(OpenCV REQUIRED)
-include_directories(${OpenCV_INCLUDE_DIRS})
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra)
+endif()
 
-find_package(cmake_modules REQUIRED)
+find_package(ament_cmake REQUIRED)
+find_package(ament_index_cpp REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(rclcpp_components REQUIRED)
+find_package(cv_bridge REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(rviz_cinematographer_msgs REQUIRED)
+find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio)
 
-find_package(catkin REQUIRED COMPONENTS
-	roscpp
-  cv_bridge
-  image_geometry
-  image_transport
-	sensor_msgs
-	rviz_cinematographer_msgs
-)
-
-catkin_package(
-  INCLUDE_DIRS include
-  LIBRARIES ${PROJECT_NAME}_nodelet
-	CATKIN_DEPENDS rviz_cinematographer_msgs
-)
-
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-  ${CMAKE_CURRENT_BINARY_DIR}
-)
-
-add_library(${PROJECT_NAME}_nodelet
+add_library(${PROJECT_NAME} SHARED
   src/video_recorder.cpp
 )
 
-target_link_libraries(${PROJECT_NAME}_nodelet
-  ${catkin_LIBRARIES}
+target_include_directories(${PROJECT_NAME} PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>"
+  ${OpenCV_INCLUDE_DIRS}
 )
 
-add_dependencies(${PROJECT_NAME}_nodelet
-  ${catkin_EXPORTED_TARGETS}
+target_link_libraries(${PROJECT_NAME} PUBLIC
+  ament_index_cpp::ament_index_cpp
+  rclcpp::rclcpp
+  rclcpp_components::component
+  cv_bridge::cv_bridge
+  image_transport::image_transport
+  ${sensor_msgs_TARGETS}
+  ${rviz_cinematographer_msgs_TARGETS}
+  ${OpenCV_LIBS}
 )
 
-install(FILES nodelet_plugins.xml
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-)
-install(TARGETS ${PROJECT_NAME}_nodelet
-  RUNTIME DESTINATION ${CATKIN_GLOBAL_BIN_DESTINATION}
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-)
-install(DIRECTORY launch
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
+rclcpp_components_register_node(${PROJECT_NAME}
+  PLUGIN "video_recorder::VideoRecorder"
+  EXECUTABLE video_recorder_node
 )
 
-# Dummy target for IDE's
-FILE(GLOB_RECURSE all_headers_for_ides
-        ${CMAKE_SOURCE_DIR}/**/*.hpp
-        ${CMAKE_SOURCE_DIR}/**/*.h)
-ADD_CUSTOM_TARGET(ide_includes_${PROJECT_NAME} SOURCES ${all_headers_for_ides})
+install(
+  TARGETS ${PROJECT_NAME}
+  EXPORT export_${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(
+  DIRECTORY include/
+  DESTINATION include/${PROJECT_NAME}
+)
+
+install(
+  DIRECTORY launch watermark
+  DESTINATION share/${PROJECT_NAME}
+)
+
+ament_export_include_directories("include/${PROJECT_NAME}")
+ament_export_targets(export_${PROJECT_NAME})
+ament_export_dependencies(
+  ament_index_cpp
+  rclcpp
+  rclcpp_components
+  cv_bridge
+  image_transport
+  sensor_msgs
+  rviz_cinematographer_msgs
+  OpenCV
+)
+
+ament_package()

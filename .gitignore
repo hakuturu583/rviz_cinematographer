@@ -9,3 +9,6 @@ latex/
 *.directory
 *.kdev4
 *.orig
+build/
+install/
+log/

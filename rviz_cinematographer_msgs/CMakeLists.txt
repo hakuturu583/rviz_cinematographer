@@ -1,38 +1,21 @@
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.8)
 project(rviz_cinematographer_msgs)
 
-set(CMAKE_BUILD_TYPE RelWithDebInfo)
+find_package(ament_cmake REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(builtin_interfaces REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(geometry_msgs REQUIRED)
 
-set(MSG_DEPS
-   std_msgs
-   geometry_msgs
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "msg/CameraMovement.msg"
+  "msg/CameraTrajectory.msg"
+  "msg/Record.msg"
+  "msg/Finished.msg"
+  "msg/Wait.msg"
+  DEPENDENCIES builtin_interfaces std_msgs geometry_msgs
 )
 
-find_package(catkin REQUIRED COMPONENTS
-   ${MSG_DEPS}
-	message_generation
-	genmsg
-)
+ament_export_dependencies(rosidl_default_runtime)
 
-add_message_files(
-   DIRECTORY msg 
-	 FILES
-   CameraMovement.msg
-   CameraTrajectory.msg
-   Record.msg
-   Finished.msg
-   Wait.msg
-)
-
-generate_messages(
-	DEPENDENCIES
-   ${MSG_DEPS}
-)
-
-catkin_package(
-	CATKIN_DEPENDS message_runtime ${MSG_DEPS}
-)
-
-include_directories(
-	${catkin_INCLUDE_DIRS}
-)
+ament_package()

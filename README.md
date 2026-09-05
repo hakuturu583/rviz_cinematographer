@@ -2,6 +2,27 @@
 
 An rqt plugin to create and edit trajectories for the rviz camera and record its views in a video.
 
+This branch targets **ROS 2** (developed against Jazzy, should work with Humble and newer).
+The packages are built with `ament_cmake`/`colcon`, the view controller is an `rviz2` plugin,
+the GUI is an `rqt_gui_cpp` plugin and the video recorder is a composable `rclcpp` node.
+
+# Build
+
+```
+$ cd ~/ros2_ws/src
+$ git clone <this repository>
+$ cd ~/ros2_ws
+$ rosdep install --from-paths src --ignore-src -r -y
+$ colcon build --symlink-install
+$ source install/setup.bash
+```
+
+# Quick start
+
+```
+$ ros2 launch rviz_cinematographer_gui rviz_cinematographer_gui.launch.py
+```
+
 An example trajectory generated in about 3 minutes:
 
 ![Example](readme/output.gif)
