@@ -7,20 +7,28 @@ Create and edit trajectories to move the rviz camera along and record what is vi
 
 # Install
 
-Clone or download this repository into your ros catkin workspace.  
-Make/Build this package - induces build of other packages. 
+Clone or download this repository into the `src` folder of your ROS 2 workspace.  
+Build the workspace with `colcon build` - building this package induces the build of the other packages.
 
 # Getting Started
 
 I recommend to launch the provided launch file to get a feeling for this tool without any distractions. 
 
 ```
-$ roslaunch rviz_cinematographer_gui rviz_cinematographer_gui.launch
+$ ros2 launch rviz_cinematographer_gui rviz_cinematographer_gui.launch.py
 ```
+
+The launch file accepts the arguments `trajectory_file` (yaml file that is loaded on start up), `start_recorder` (true/false) and `rviz_config`.
 
 The tutorial below introduces most features. 
 
 Alternatively, you can start the provided plugin inside rqt at any time to create camera trajectories within already running rviz visualizations.  
+When starting the plugin standalone, a trajectory can be loaded and the recorder can be disabled using plugin arguments:
+
+```
+$ ros2 run rqt_gui rqt_gui -s rviz_cinematographer_gui/RvizCinematographerGUI --args --trajectory-file /path/to/trajectory.yaml [--no-recorder]
+```
+
 Some [remarks](README.md#remarks) for this use case are added after the tutorial section. 
 
 # Tutorial
@@ -126,12 +134,12 @@ Thanks to https://github.com/ejmahler/SplineLibrary for providing an easy to use
 ##### Save/Open Trajectory:
 
 Save your trajectory using the *Save As..*-button and load existing ones using the *Open*-button.  
-Additionally one trajectory can be specified in the launch file to be loaded on initialization.
+Additionally one trajectory can be specified as launch argument (`trajectory_file`) to be loaded on initialization.
 
 # Remarks
 
 You have the option to create a camera trajectory within an already running rviz instance.   
-For this, just run your application and visualization in rviz as usual and additionally start rqt by 
+For this, just run your application and visualization in rviz2 as usual and additionally start rqt by 
 
 ```
 $ rqt
@@ -141,7 +149,7 @@ Click on "Plugins -> Visualization -> Rviz Cinematographer".
 
 **Caveat:** Be aware, that rviz should **not** be started as an rqt plugin, because this experimental version of rviz crashes every time a *Path* message is received.
 
-Now you have to add the *InteractiveMarkers* and the *Path* displays.  
+Now you have to add the *InteractiveMarkers* (namespace `/trajectory`) and the *Path* (topic `/transformed_path`, durability *Transient Local*) displays.  
 Make sure the frame specified in the Rviz Cinematographer plugin is present in your tf tree, otherwise you will not be able to see the markers. 
 
 Additionally you have to select the rviz_cinematographer_view_controller in the Rviz *Views* in order to be able to move the camera using the plugin.  
@@ -156,6 +164,6 @@ I would recommend to use the *Fixed Frame* as the Target Frame for the view.
 All of these steps were taken care of when starting the *Rviz Cinematographer* using the provided launch file
 
 ```
-$ roslaunch rviz_cinematographer_gui rviz_cinematographer_gui.launch
+$ ros2 launch rviz_cinematographer_gui rviz_cinematographer_gui.launch.py
 ```
 

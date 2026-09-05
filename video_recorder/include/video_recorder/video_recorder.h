@@ -8,80 +8,96 @@
 #ifndef VIDEO_RECORDER_H
 #define VIDEO_RECORDER_H
 
+#include <atomic>
+#include <chrono>
+#include <memory>
+#include <mutex>
 #include <queue>
-#include <unistd.h>
+#include <string>
+#include <thread>
 
-#include <nodelet/nodelet.h>
+#include <rclcpp/rclcpp.hpp>
 
-#include <ros/subscriber.h>
-#include <ros/ros.h>
-#include <ros/package.h>
+#include <rviz_cinematographer_msgs/msg/record.hpp>
+#include <rviz_cinematographer_msgs/msg/finished.hpp>
+#include <rviz_cinematographer_msgs/msg/wait.hpp>
 
-#include <rviz_cinematographer_msgs/Record.h>
-#include <rviz_cinematographer_msgs/Finished.h>
-#include <rviz_cinematographer_msgs/Wait.h>
+#include <sensor_msgs/msg/image.hpp>
 
-#include <sensor_msgs/Image.h>
-
-#include <boost/thread.hpp>
-
-#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/core/core.hpp>
 #include <opencv2/videoio/videoio.hpp>
 
-#include <image_transport/image_transport.h>
+#include <image_transport/image_transport.hpp>
+
+#if __has_include(<cv_bridge/cv_bridge.hpp>)
+#include <cv_bridge/cv_bridge.hpp>
+#else
 #include <cv_bridge/cv_bridge.h>
+#endif
 
 namespace video_recorder
 {
 
-class VideoRecorderNodelet : public nodelet::Nodelet
+/**
+ * @brief Node that subscribes to images and writes them into a video file.
+ *
+ * Can be used as a composable node (component) or as a standalone executable.
+ */
+class VideoRecorder : public rclcpp::Node
 {
 public:
 
-  VideoRecorderNodelet();
+  /**
+   * @brief Constructor. Sets up subscribers, publishers and the image processing thread.
+   *
+   * @param[in] options   node options.
+   */
+  explicit VideoRecorder(const rclcpp::NodeOptions& options = rclcpp::NodeOptions());
+
+  /** @brief Destructor. Stops the processing thread and releases the video writer. */
+  ~VideoRecorder() override;
 
 protected:
 
-  /**
-   * @brief Nodelet initialization.
-   */
-  virtual void onInit();
-
-  /** @brief Sets requested recording parameters and initializes a thread to process incoming images.
+  /** @brief Sets requested recording parameters.
    *
    * @params[in] record_params  specifies that a record should be made and the parameters that should be used.
    */
-  void recordParamsCallback(const rviz_cinematographer_msgs::Record::ConstPtr& record_params);
+  void recordParamsCallback(const rviz_cinematographer_msgs::msg::Record::ConstSharedPtr record_params);
 
   /** @brief Awaits a message indicating that the image stream ended to stop recording.
-   * 
-   * Waits until image_queue is processed, releases video writer and publishes that the recording is finished.
+   *
+   * Requests the processing thread to release the video writer as soon as the image queue is processed and
+   * to publish that the recording is finished.
    *
    * @params[in] rendering_finished  true if image stream ended.
    */
-  void renderingFinishedCallback(const rviz_cinematographer_msgs::Finished::ConstPtr& rendering_finished);
+  void renderingFinishedCallback(const rviz_cinematographer_msgs::msg::Finished::ConstSharedPtr rendering_finished);
 
   /** @brief Stores subscribed images in queue and publishes a message if queue is too large.
-   * 
-   * If queue's size exceeds max_queue_size, the duration it takes to process most of the queue is computed and 
+   *
+   * If queue's size exceeds max_queue_size, the duration it takes to process most of the queue is computed and
    * published. This message can be used by the source of the image stream to wait for the estimated duration.
    *
    * @params[in] input_image  subscribed image.
    */
-  void imageCallback(const sensor_msgs::ImageConstPtr& input_image);
+  void imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr& input_image);
 
   /** @brief Feeds images from queue to video writer, optionally adding a watermark. */
   void processImages();
 
+  /** @brief Releases the video writer and publishes that the recording is finished. */
+  void finishRecording();
+
   /** @brief Resizes watermark to be at most half as wide as the input images.
-   * 
+   *
    * @params[in,out]    watermark       the watermark being resized.
    * @params[in]        image_width     the width of the input images.
    */
   void resizeWatermark(cv::Mat& watermark, const int image_width);
 
   /** @brief Adds watermark to the image.
-   * 
+   *
    * @params[in,out]    image       the image being watermarked.
    * @params[in]        watermark   the watermark.
    */
@@ -89,21 +105,25 @@ protected:
 
 protected:
 
-  ros::NodeHandle nh_;
-
-  ros::Subscriber record_params_sub_;
-  ros::Subscriber rendering_finished_sub_;
+  rclcpp::Subscription<rviz_cinematographer_msgs::msg::Record>::SharedPtr record_params_sub_;
+  rclcpp::Subscription<rviz_cinematographer_msgs::msg::Finished>::SharedPtr rendering_finished_sub_;
 
   image_transport::Subscriber image_sub_;
+
+  std::mutex queue_mutex_;
   std::queue<cv_bridge::CvImagePtr> image_queue_;
   int max_queue_size_;
-  ros::WallDuration process_one_image_duration_;
+  std::chrono::duration<double> process_one_image_duration_;
 
-  boost::shared_ptr<boost::thread> process_images_thread_;
+  std::thread process_images_thread_;
+  std::atomic<bool> running_;
+  std::atomic<bool> finish_requested_;
 
-  ros::Publisher record_finished_pub_;
-  ros::Publisher wait_pub_;
+  rclcpp::Publisher<rviz_cinematographer_msgs::msg::Finished>::SharedPtr record_finished_pub_;
+  rclcpp::Publisher<rviz_cinematographer_msgs::msg::Wait>::SharedPtr wait_pub_;
 
+  /// Protects the recording parameters and the video writer.
+  std::mutex params_mutex_;
   cv::VideoWriter output_video_;
   std::string path_to_output_;
   int codec_;

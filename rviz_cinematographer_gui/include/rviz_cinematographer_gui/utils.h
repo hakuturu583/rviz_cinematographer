@@ -8,11 +8,11 @@
 #ifndef RVIZ_CINEMATOGRAPHER_GUI_UTILS_H
 #define RVIZ_CINEMATOGRAPHER_GUI_UTILS_H
 
-#include <ros/node_handle.h>
+#include <cmath>
 
-#include <visualization_msgs/Marker.h>
-#include <visualization_msgs/InteractiveMarker.h>
-#include <visualization_msgs/InteractiveMarkerControl.h>
+#include <visualization_msgs/msg/marker.hpp>
+#include <visualization_msgs/msg/interactive_marker.hpp>
+#include <visualization_msgs/msg/interactive_marker_control.hpp>
 
 namespace rviz_cinematographer_gui
 {
@@ -23,10 +23,10 @@ namespace rviz_cinematographer_gui
  * @param[in] scale     scale.
  * @return Box marker.
  */
-inline visualization_msgs::Marker makeBox(float scale)
+inline visualization_msgs::msg::Marker makeBox(float scale)
 {
-  visualization_msgs::Marker marker;
-  marker.type = visualization_msgs::Marker::CUBE;
+  visualization_msgs::msg::Marker marker;
+  marker.type = visualization_msgs::msg::Marker::CUBE;
   marker.pose.orientation.w = M_SQRT1_2;
   marker.pose.orientation.y = M_SQRT1_2;
   marker.scale.x = scale * 0.15;
@@ -45,10 +45,10 @@ inline visualization_msgs::Marker makeBox(float scale)
  * @param[in] scale     scale.
  * @return Arrow marker.
  */
-inline visualization_msgs::Marker makeArrow(float scale)
+inline visualization_msgs::msg::Marker makeArrow(float scale)
 {
-  visualization_msgs::Marker marker;
-  marker.type = visualization_msgs::Marker::ARROW;
+  visualization_msgs::msg::Marker marker;
+  marker.type = visualization_msgs::msg::Marker::ARROW;
   marker.pose.orientation.w = M_SQRT1_2;
   marker.pose.orientation.y = M_SQRT1_2;
   marker.scale.x = scale * 0.7;
@@ -66,40 +66,16 @@ inline visualization_msgs::Marker makeArrow(float scale)
  *
  * @param[in,out] marker    marker that is augmented with control.
  */
-inline void makeBoxControl(visualization_msgs::InteractiveMarker& marker)
+inline void makeBoxControl(visualization_msgs::msg::InteractiveMarker& marker)
 {
-  visualization_msgs::InteractiveMarkerControl control;
+  visualization_msgs::msg::InteractiveMarkerControl control;
   control.always_visible = true;
   control.orientation.w = 1.0;
   control.markers.push_back(makeBox(marker.scale));
   control.markers.push_back(makeArrow(marker.scale));
   marker.controls.push_back(control);
-  marker.controls.back().interaction_mode = visualization_msgs::InteractiveMarkerControl::BUTTON;
+  marker.controls.back().interaction_mode = visualization_msgs::msg::InteractiveMarkerControl::BUTTON;
   marker.controls.back().name = "submit_button";
-}
-
-inline bool getFullParamName(const ros::NodeHandle& nh,
-                             std::string& param_name)
-{
-  std::vector<std::string> keys;
-  nh.getParamNames(keys);
-  for(auto& key : keys)
-  {
-    if (key.find(param_name) != std::string::npos) {
-      param_name = key;
-      return true;
-    }
-  }
-  return false;
-}
-
-template<typename T> inline bool getParam(const ros::NodeHandle& nh,
-                     std::string& param_name,
-                     T& param,
-                     T default_param)
-{
-  getFullParamName(nh, param_name);
-  return nh.param< T >(param_name, param, default_param);
 }
 
 }

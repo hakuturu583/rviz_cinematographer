@@ -7,12 +7,25 @@
 
 #include "video_recorder/video_recorder.h"
 
+#include <algorithm>
+#include <functional>
+
+#include <ament_index_cpp/get_package_share_directory.hpp>
+
+#include <opencv2/imgcodecs/imgcodecs.hpp>
+#include <opencv2/imgproc/imgproc.hpp>
+
+#include <sensor_msgs/image_encodings.hpp>
+
 namespace video_recorder
 {
 
-VideoRecorderNodelet::VideoRecorderNodelet()
-  : nh_("")
+VideoRecorder::VideoRecorder(const rclcpp::NodeOptions& options)
+  : rclcpp::Node("video_recorder", options)
     , max_queue_size_(50)
+    , process_one_image_duration_(0.0)
+    , running_(true)
+    , finish_requested_(false)
     , path_to_output_("")
     , codec_(cv::VideoWriter::fourcc('D', 'I', 'V', 'X'))
     , target_fps_(60)
@@ -20,25 +33,41 @@ VideoRecorderNodelet::VideoRecorderNodelet()
     , add_watermark_(true)
     , is_watermark_resized_(false)
 {
+  record_finished_pub_ = create_publisher<rviz_cinematographer_msgs::msg::Finished>("/video_recorder/record_finished", rclcpp::QoS(1));
+  wait_pub_ = create_publisher<rviz_cinematographer_msgs::msg::Wait>("/video_recorder/wait_duration", rclcpp::QoS(1));
+
+  record_params_sub_ = create_subscription<rviz_cinematographer_msgs::msg::Record>(
+    "/rviz/record", rclcpp::QoS(1),
+    std::bind(&VideoRecorder::recordParamsCallback, this, std::placeholders::_1));
+  rendering_finished_sub_ = create_subscription<rviz_cinematographer_msgs::msg::Finished>(
+    "/rviz/finished_rendering_trajectory", rclcpp::QoS(1),
+    std::bind(&VideoRecorder::renderingFinishedCallback, this, std::placeholders::_1));
+
+  image_sub_ = image_transport::create_subscription(this, "/rviz/view_image",
+                                                    std::bind(&VideoRecorder::imageCallback, this, std::placeholders::_1),
+                                                    "raw");
+
+  // thread processing the queued images
+  process_images_thread_ = std::thread(&VideoRecorder::processImages, this);
 }
 
-void VideoRecorderNodelet::onInit()
+VideoRecorder::~VideoRecorder()
 {
-  record_finished_pub_ = nh_.advertise<rviz_cinematographer_msgs::Finished>("/video_recorder/record_finished", 1);
-  wait_pub_ = nh_.advertise<rviz_cinematographer_msgs::Wait>("/video_recorder/wait_duration", 1);
+  running_ = false;
+  if(process_images_thread_.joinable())
+    process_images_thread_.join();
 
-  record_params_sub_ = nh_.subscribe("/rviz/record", 1, &VideoRecorderNodelet::recordParamsCallback, this);
-  rendering_finished_sub_ = nh_.subscribe("/rviz/finished_rendering_trajectory", 1,
-                                          &VideoRecorderNodelet::renderingFinishedCallback, this);
-
-  image_transport::ImageTransport it(nh_);
-  image_sub_ = it.subscribe("/rviz/view_image", 1, &VideoRecorderNodelet::imageCallback, this);
+  std::lock_guard<std::mutex> lock(params_mutex_);
+  if(output_video_.isOpened())
+    output_video_.release();
 }
 
-void VideoRecorderNodelet::recordParamsCallback(const rviz_cinematographer_msgs::Record::ConstPtr& record_params)
+void VideoRecorder::recordParamsCallback(const rviz_cinematographer_msgs::msg::Record::ConstSharedPtr record_params)
 {
+  std::lock_guard<std::mutex> lock(params_mutex_);
+
   int max_fps = 120;
-  if(record_params->compress > 0)
+  if(record_params->compress)
     codec_ = cv::VideoWriter::fourcc('D', 'I', 'V', 'X');
   else
   {
@@ -46,52 +75,44 @@ void VideoRecorderNodelet::recordParamsCallback(const rviz_cinematographer_msgs:
     max_fps = 60;
   }
 
-  target_fps_ = std::max(1, std::min(max_fps, (int)record_params->frames_per_second));
+  target_fps_ = std::max(1, std::min(max_fps, static_cast<int>(record_params->frames_per_second)));
 
   path_to_output_ = record_params->path_to_output;
-  add_watermark_ = record_params->add_watermark > 0;
+  add_watermark_ = record_params->add_watermark;
 
   if(add_watermark_)
   {
-    // load watermark 
-    std::string path_to_watermark = ros::package::getPath("video_recorder");
-    if(path_to_watermark.empty())
-      NODELET_ERROR("Can't find path to video_recorder to load watermark.");
-    else
+    // load watermark
+    std::string path_to_watermark;
+    try
+    {
+      path_to_watermark = ament_index_cpp::get_package_share_directory("video_recorder");
+    }
+    catch(const std::exception& e)
+    {
+      RCLCPP_ERROR(get_logger(), "Can't find path to video_recorder to load watermark: %s", e.what());
+    }
+
+    if(!path_to_watermark.empty())
     {
       path_to_watermark += "/watermark/watermark.png";
       original_watermark_ = cv::imread(path_to_watermark, cv::IMREAD_UNCHANGED);
+      if(original_watermark_.empty())
+        RCLCPP_ERROR_STREAM(get_logger(), "Could not load watermark from : " << path_to_watermark);
       is_watermark_resized_ = false;
     }
   }
-
-  // init thread to process images if not already existing
-  if(!process_images_thread_)
-    process_images_thread_ = boost::shared_ptr<boost::thread>(
-      new boost::thread(boost::bind(&VideoRecorderNodelet::processImages, this)));
 }
 
 void
-VideoRecorderNodelet::renderingFinishedCallback(const rviz_cinematographer_msgs::Finished::ConstPtr& rendering_finished)
+VideoRecorder::renderingFinishedCallback(const rviz_cinematographer_msgs::msg::Finished::ConstSharedPtr rendering_finished)
 {
-  ros::Rate r(30); // 30Hz
+  // the processing thread releases the video writer as soon as the queue is empty
   if(rendering_finished->is_finished)
-  {
-    // wait until images in queue are processed 
-    while(!image_queue_.empty())
-      r.sleep();
-
-    if(output_video_.isOpened())
-      output_video_.release();
-
-    // publish that recording is finished 
-    rviz_cinematographer_msgs::Finished record_finished;
-    record_finished.is_finished = true;
-    record_finished_pub_.publish(record_finished);
-  }
+    finish_requested_ = true;
 }
 
-void VideoRecorderNodelet::imageCallback(const sensor_msgs::ImageConstPtr& input_image)
+void VideoRecorder::imageCallback(const sensor_msgs::msg::Image::ConstSharedPtr& input_image)
 {
   cv_bridge::CvImagePtr cv_image;
   try
@@ -100,45 +121,75 @@ void VideoRecorderNodelet::imageCallback(const sensor_msgs::ImageConstPtr& input
   }
   catch(cv_bridge::Exception& e)
   {
-    NODELET_ERROR("Failed to convert sensor_msgs::Image to cv_bridge::CvImage : cv_bridge exception: %s", e.what());
+    RCLCPP_ERROR(get_logger(), "Failed to convert sensor_msgs::msg::Image to cv_bridge::CvImage : cv_bridge exception: %s", e.what());
     return;
   }
 
-  image_queue_.push(cv_image);
-
-  if((int)image_queue_.size() >= max_queue_size_)
+  size_t queue_size = 0;
   {
-    NODELET_DEBUG("Max queue size exceeded. Sending wait message.");
-    // publish that input has to wait until some images are processed 
-    ros::WallDuration wait_duration = process_one_image_duration_ * (max_queue_size_ - (max_queue_size_ / 5));
-    rviz_cinematographer_msgs::Wait wait_duration_msg;
-    wait_duration_msg.seconds = static_cast<float>(wait_duration.toSec());
-    wait_pub_.publish(wait_duration_msg);
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    image_queue_.push(cv_image);
+    queue_size = image_queue_.size();
+  }
+
+  if(static_cast<int>(queue_size) >= max_queue_size_)
+  {
+    RCLCPP_DEBUG(get_logger(), "Max queue size exceeded. Sending wait message.");
+    // publish that input has to wait until some images are processed
+    std::chrono::duration<double> wait_duration = process_one_image_duration_ * (max_queue_size_ - (max_queue_size_ / 5));
+    rviz_cinematographer_msgs::msg::Wait wait_duration_msg;
+    wait_duration_msg.seconds = static_cast<float>(wait_duration.count());
+    wait_pub_->publish(wait_duration_msg);
   }
 }
 
-void VideoRecorderNodelet::processImages()
+void VideoRecorder::finishRecording()
 {
-  ros::Rate r(30); // 30 hz
-  while(ros::ok())
   {
-    if(!image_queue_.empty())
-    {
-      ros::WallTime start = ros::WallTime::now();
+    std::lock_guard<std::mutex> lock(params_mutex_);
+    if(output_video_.isOpened())
+      output_video_.release();
+    recorded_frames_counter_ = 0;
+  }
 
-      cv_bridge::CvImagePtr cv_ptr = image_queue_.front();
+  // publish that recording is finished
+  rviz_cinematographer_msgs::msg::Finished record_finished;
+  record_finished.is_finished = true;
+  record_finished_pub_->publish(record_finished);
+}
+
+void VideoRecorder::processImages()
+{
+  const std::chrono::milliseconds idle_sleep(33); // ~30 hz
+  while(running_ && rclcpp::ok())
+  {
+    cv_bridge::CvImagePtr cv_ptr;
+    {
+      std::lock_guard<std::mutex> lock(queue_mutex_);
+      if(!image_queue_.empty())
+      {
+        cv_ptr = image_queue_.front();
+        image_queue_.pop();
+      }
+    }
+
+    if(cv_ptr)
+    {
+      auto start = std::chrono::steady_clock::now();
+
+      std::lock_guard<std::mutex> lock(params_mutex_);
 
       cv::Size img_size(cv_ptr->image.cols, cv_ptr->image.rows);
 
       if(!output_video_.isOpened())
         if(!output_video_.open(path_to_output_, codec_, target_fps_, img_size, true))
-          NODELET_ERROR_STREAM("Could not open the output video to write file in : " << path_to_output_);
+          RCLCPP_ERROR_STREAM(get_logger(), "Could not open the output video to write file in : " << path_to_output_);
 
       if(output_video_.isOpened())
       {
-        if(add_watermark_)
+        if(add_watermark_ && !original_watermark_.empty())
         {
-          // resize watermark only once per recording to better fit the video image size 
+          // resize watermark only once per recording to better fit the video image size
           if(!is_watermark_resized_)
           {
             original_watermark_.copyTo(resized_watermark_);
@@ -146,32 +197,41 @@ void VideoRecorderNodelet::processImages()
             is_watermark_resized_ = true;
           }
 
-          // add watermark 
+          // add watermark
           addWatermark(cv_ptr->image, resized_watermark_);
         }
         output_video_.write(cv_ptr->image);
+        recorded_frames_counter_++;
       }
 
-      image_queue_.pop();
-
-      process_one_image_duration_ = ros::WallTime::now() - start;
+      process_one_image_duration_ = std::chrono::steady_clock::now() - start;
+    }
+    else if(finish_requested_)
+    {
+      finish_requested_ = false;
+      finishRecording();
     }
     else
     {
-      r.sleep();
+      std::this_thread::sleep_for(idle_sleep);
     }
   }
 }
 
-void VideoRecorderNodelet::resizeWatermark(cv::Mat& watermark, const int image_width)
+void VideoRecorder::resizeWatermark(cv::Mat& watermark, const int image_width)
 {
   float watermark_resize_factor = (0.5f * image_width) / watermark.cols;
   if(watermark_resize_factor < 1.f)
     cv::resize(watermark, watermark, cv::Size(), watermark_resize_factor, watermark_resize_factor);
 }
 
-void VideoRecorderNodelet::addWatermark(cv::Mat& image, const cv::Mat& watermark)
+void VideoRecorder::addWatermark(cv::Mat& image, const cv::Mat& watermark)
 {
+  if(watermark.channels() != 4 || image.channels() != 3)
+    return;
+  if(watermark.rows > image.rows || watermark.cols > image.cols)
+    return;
+
   int origin_watermark_row = image.rows - watermark.rows;
   int origin_watermark_col = image.cols - watermark.cols;
   int image_row = origin_watermark_row;
@@ -194,8 +254,8 @@ void VideoRecorderNodelet::addWatermark(cv::Mat& image, const cv::Mat& watermark
   }
 }
 
-}
+}  // namespace video_recorder
 
-#include <pluginlib/class_list_macros.h>
-// Register this plugin with pluginlib.  Names must match nodelet_plugin.xml.
-PLUGINLIB_EXPORT_CLASS(video_recorder::VideoRecorderNodelet, nodelet::Nodelet)
+#include <rclcpp_components/register_node_macro.hpp>
+// Register this node as a component. This also generates the standalone executable "video_recorder_node".
+RCLCPP_COMPONENTS_REGISTER_NODE(video_recorder::VideoRecorder)
