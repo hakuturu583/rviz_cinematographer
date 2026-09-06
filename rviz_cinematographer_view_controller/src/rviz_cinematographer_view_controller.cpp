@@ -620,6 +620,8 @@ void CinematographerViewController::beginNewTransition(const Ogre::Vector3& eye,
   if(cam_movements_buffer_.empty())
   {
     transition_start_time_ = WallClock::now();
+    // when recording, the first rendered frame is the current pose (progress 1 of the pseudo movement below)
+    recorded_frames_counter_ = 1;
 
     cam_movements_buffer_.emplace_back(eye_point_property_->getVector(),
                                        focus_point_property_->getVector(),
@@ -850,7 +852,8 @@ void CinematographerViewController::update(float dt, float ros_dt)
     {
       // delete current start element in buffer
       cam_movements_buffer_.pop_front();
-      recorded_frames_counter_ = 0;
+      // the start pose of the next movement is the pose that was just rendered - don't render it twice
+      recorded_frames_counter_ = 1;
 
       // if there are still movements to perform
       if(cam_movements_buffer_.size() > 1)

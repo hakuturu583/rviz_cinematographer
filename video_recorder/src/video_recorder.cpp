@@ -70,7 +70,8 @@ void VideoRecorder::recordParamsCallback(const rviz_cinematographer_msgs::msg::R
     codec_ = cv::VideoWriter::fourcc('D', 'I', 'V', 'X');
   else
   {
-    codec_ = cv::VideoWriter::fourcc('P', 'I', 'M', '1');
+    // lossless codec as documented (the ROS 1 version used the lossy MPEG-1 codec PIM1 here)
+    codec_ = cv::VideoWriter::fourcc('F', 'F', 'V', '1');
     max_fps = 60;
   }
 

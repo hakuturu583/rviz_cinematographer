@@ -84,7 +84,7 @@ Another option to edit the number of markers defining the trajectory is to right
 
 ![trajectory_editor_right_click](readme/trajectory_editor_right_click.png)
 
-Use *Delete* on your keyboard to remove the active marker. 
+Use *Delete* on your keyboard to remove the active marker (the rviz render window has to have the keyboard focus, i.e. click into it first). 
 
 ##### Edit Pose:
 
