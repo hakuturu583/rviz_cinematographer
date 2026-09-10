@@ -1,91 +1,92 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.10)
 project(rviz_cinematographer_view_controller)
 
-## Compile as C++11, supported in ROS Kinetic and newer
-add_compile_options(-std=c++11)
+if(NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+endif()
 
-find_package(OpenCV REQUIRED)
-include_directories(${OpenCV_INCLUDE_DIRS})
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra)
+endif()
 
-find_package(cmake_modules REQUIRED)
-find_package(Eigen REQUIRED)
-find_package(Boost REQUIRED system filesystem)
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(rviz_common REQUIRED)
+find_package(rviz_rendering REQUIRED)
+find_package(rviz_ogre_vendor REQUIRED)
+find_package(geometry_msgs REQUIRED)
+find_package(nav_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(image_transport REQUIRED)
+find_package(rviz_cinematographer_msgs REQUIRED)
 
-# Ogre
-pkg_check_modules(OGRE OGRE)
+# Qt
+find_package(Qt5 REQUIRED COMPONENTS Core Widgets)
+set(CMAKE_AUTOMOC ON)
 
-add_definitions(-DQT_NO_KEYWORDS)
-
-find_package(OpenGL REQUIRED)
-
-find_package(catkin REQUIRED COMPONENTS
-  rviz
-  pluginlib
-  nav_msgs
-  rviz_cinematographer_msgs
-   cv_bridge
-   image_geometry
-   image_transport
-)
-
-# Qt Stuff
-find_package(Qt5 ${rviz_QT_VERSION} EXACT REQUIRED Core Widgets)
-
-set(QT_INCLUDE_DIRS 
-  ${Qt5Core_INCLUDE_DIRS} 
-  ${Qt5Widgets_INCLUDE_DIRS}
-)
-
-catkin_package(
-  INCLUDE_DIRS include
-  LIBRARIES ${PROJECT_NAME}
-  CATKIN_DEPENDS rviz_cinematographer_msgs)
-
-qt5_wrap_cpp(MOC_FILES
+add_library(${PROJECT_NAME} SHARED
   include/${PROJECT_NAME}/rviz_cinematographer_view_controller.h
+  src/rviz_cinematographer_view_controller.cpp
 )
 
-include_directories(
-  include
-  ${catkin_INCLUDE_DIRS}
-  ${Boost_INCLUDE_DIRS}
-  ${QT_INCLUDE_DIRS}
-  ${OGRE_INCLUDE_DIRS}
-  ${OPENGL_INCLUDE_DIR}
-  ${CMAKE_CURRENT_BINARY_DIR})
-
-add_library(${PROJECT_NAME}
-        src/rviz_cinematographer_view_controller.cpp
-  ${MOC_FILES}
+target_include_directories(${PROJECT_NAME} PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<INSTALL_INTERFACE:include/${PROJECT_NAME}>"
 )
 
-target_link_libraries(
-  ${PROJECT_NAME} 
-  ${OGRE_LIBRARIES}
-  ${catkin_LIBRARIES}
-  ${Boost_LIBRARIES}
+target_link_libraries(${PROJECT_NAME} PUBLIC
+  rclcpp::rclcpp
+  pluginlib::pluginlib
+  rviz_common::rviz_common
+  rviz_rendering::rviz_rendering
+  rviz_ogre_vendor::OgreMain
+  image_transport::image_transport
+  ${geometry_msgs_TARGETS}
+  ${nav_msgs_TARGETS}
+  ${sensor_msgs_TARGETS}
+  ${std_msgs_TARGETS}
+  ${rviz_cinematographer_msgs_TARGETS}
+  Qt5::Core
+  Qt5::Widgets
 )
 
-add_dependencies(
-  ${PROJECT_NAME}
-  ${catkin_EXPORTED_TARGETS}
+pluginlib_export_plugin_description_file(rviz_common plugin_description.xml)
+
+install(
+  TARGETS ${PROJECT_NAME}
+  EXPORT export_${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
 )
 
-install(DIRECTORY include/${PROJECT_NAME}/
-        DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION} PATTERN ".svn" EXCLUDE)
-
-install(FILES plugin_description.xml
-        DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
-install(DIRECTORY launch DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
-
-install(TARGETS ${PROJECT_NAME}
-   ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-   LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-   RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+install(
+  DIRECTORY include/
+  DESTINATION include/${PROJECT_NAME}
 )
 
-# Dummy target for IDE's
-FILE(GLOB_RECURSE all_headers_for_ides
-        ${CMAKE_SOURCE_DIR}/**/*.hpp
-        ${CMAKE_SOURCE_DIR}/**/*.h)
-ADD_CUSTOM_TARGET(ide_includes_${PROJECT_NAME} SOURCES ${all_headers_for_ides})
+install(
+  DIRECTORY launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+ament_export_include_directories("include/${PROJECT_NAME}")
+ament_export_targets(export_${PROJECT_NAME})
+ament_export_dependencies(
+  rclcpp
+  pluginlib
+  rviz_common
+  rviz_rendering
+  rviz_ogre_vendor
+  geometry_msgs
+  nav_msgs
+  sensor_msgs
+  std_msgs
+  image_transport
+  rviz_cinematographer_msgs
+)
+
+ament_package()

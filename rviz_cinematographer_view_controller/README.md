@@ -1,6 +1,13 @@
 # General
 
 Based on the [rviz_animated_view_controller](https://github.com/UTNuclearRoboticsPublic/rviz_animated_view_controller) package which is a modification of the official ros package for ros kinetic.
+Ported to ROS 2 as an `rviz_common::ViewController` plugin for rviz2.
+
+Select *Cinematographer (rviz_cinematographer_view_controller)* in the *Views* panel of rviz2 or try the demo:
+
+```
+$ ros2 launch rviz_cinematographer_view_controller demo.launch.py
+```
 
 Added more options to **move the rviz camera along a trajectory** and an option to publish the rendered images frame by frame - used for **recording videos** with a user defined frame rate. 
 
@@ -30,6 +37,19 @@ Additionally Odometry msgs are published when the camera movement is triggered u
 Using the *CameraTrajectory* msgs one can either move the camera the usual way by providing just one *CameraMovement* in the vector or move the camera along a trajectory specified by several *CameraMovements*.  
 
 Additionally the rendered images the user sees in rviz are published if a recording is initialized and a recorder is subscribing. 
+
+**Topics** :
+
+| Topic | Type | Direction |
+| -------- | -------- | -------- |
+| /rviz/camera_trajectory (configurable) | rviz_cinematographer_msgs/msg/CameraTrajectory | subscribed |
+| /rviz/record | rviz_cinematographer_msgs/msg/Record | subscribed |
+| /video_recorder/wait_duration | rviz_cinematographer_msgs/msg/Wait | subscribed |
+| /rviz/current_camera_pose | geometry_msgs/msg/Pose | published |
+| /rviz/trajectory_odometry | nav_msgs/msg/Odometry | published |
+| /rviz/finished_rendering_trajectory | rviz_cinematographer_msgs/msg/Finished | published |
+| /rviz/delete | std_msgs/msg/Empty | published |
+| /rviz/view_image | sensor_msgs/msg/Image (image_transport) | published |
 
 **Remark** :
 
