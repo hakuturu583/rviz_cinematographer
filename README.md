@@ -1,11 +1,14 @@
 # Rviz2 Cinematographer
 
+[![CI](https://github.com/hakuturu583/rviz_cinematographer/actions/workflows/ci.yaml/badge.svg)](https://github.com/hakuturu583/rviz_cinematographer/actions/workflows/ci.yaml)
+
 An rqt plugin to create and edit trajectories for the rviz2 camera and record its views in a video.
 
 This is a ROS 2 port of [AIS-Bonn/rviz_cinematographer](https://github.com/AIS-Bonn/rviz_cinematographer),
 released under the new package names `rviz2_cinematographer_*`.
 
-This branch targets **ROS 2** (developed against Jazzy, should work with Humble and newer).
+Supported ROS 2 distributions: **Humble, Jazzy, Kilted, Lyrical and Rolling**, all from a single branch.
+Distro differences (Qt5/Qt6, renamed headers) are handled with `__has_include` and CMake checks.
 The packages are built with `ament_cmake`/`colcon`, the view controller is an `rviz2` plugin,
 the GUI is an `rqt_gui_cpp` plugin and the video recorder is a composable `rclcpp` node.
 

@@ -33,7 +33,14 @@ else()
   set(YAML_CPP_TARGET yaml-cpp)
 endif()
 
-find_package(Qt5 REQUIRED COMPONENTS Core Widgets)
+# Build against the same Qt major version as qt_gui_cpp
+# (Qt5 up to Kilted, Qt6 from Lyrical on). Newer qt_gui_cpp exports it.
+if(DEFINED qt_gui_cpp_USE_QT_MAJOR_VERSION)
+  set(QT_VERSION_MAJOR ${qt_gui_cpp_USE_QT_MAJOR_VERSION})
+else()
+  set(QT_VERSION_MAJOR 5)
+endif()
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets)
 
 set(UI_FILES
   src/rviz2_cinematographer_gui.ui
@@ -47,9 +54,9 @@ set(RESOURCES
   src/resource.qrc
 )
 
-qt5_wrap_ui(UIC_FILES ${UI_FILES})
-qt5_wrap_cpp(MOC_FILES ${H_FILES})
-qt5_add_resources(RES_SOURCES ${RESOURCES})
+qt_wrap_ui(UIC_FILES ${UI_FILES})
+qt_wrap_cpp(MOC_FILES ${H_FILES})
+qt_add_resources(RES_SOURCES ${RESOURCES})
 
 add_library(rviz2_cinematographer_gui_plugin SHARED
   ${UIC_FILES}
@@ -81,8 +88,8 @@ target_link_libraries(rviz2_cinematographer_gui_plugin PRIVATE
   ${rviz2_cinematographer_msgs_TARGETS}
   rviz2_cinematographer_video_recorder::rviz2_cinematographer_video_recorder
   ${YAML_CPP_TARGET}
-  Qt5::Core
-  Qt5::Widgets
+  Qt${QT_VERSION_MAJOR}::Core
+  Qt${QT_VERSION_MAJOR}::Widgets
 )
 
 pluginlib_export_plugin_description_file(rqt_gui "plugin.xml")

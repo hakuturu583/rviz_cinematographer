@@ -14,13 +14,31 @@
 #include <functional>
 #include <iomanip>
 
+// ament_index_cpp provides get_package_share_path() since Jazzy and removed
+// get_package_share_directory.hpp in Rolling, so pick whichever is available.
+#if __has_include(<ament_index_cpp/get_package_share_path.hpp>)
+#include <ament_index_cpp/get_package_share_path.hpp>
+#else
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#endif
 
 #include <QHeaderView>
 #include <QItemSelection>
 #include <QMetaObject>
 #include <QVariant>
 #include <QTableWidget>
+
+namespace
+{
+std::string getPackageShareDirectory(const std::string& package_name)
+{
+#if __has_include(<ament_index_cpp/get_package_share_path.hpp>)
+  return ament_index_cpp::get_package_share_path(package_name).string();
+#else
+  return ament_index_cpp::get_package_share_directory(package_name);
+#endif
+}
+}  // namespace
 
 namespace rviz2_cinematographer_gui
 {
@@ -943,7 +961,7 @@ std::string RvizCinematographerGUI::getTrajectoriesDirectory()
 {
   try
   {
-    return ament_index_cpp::get_package_share_directory("rviz2_cinematographer_gui") + "/trajectories/";
+    return getPackageShareDirectory("rviz2_cinematographer_gui") + "/trajectories/";
   }
   catch(const std::exception& e)
   {

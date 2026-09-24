@@ -18,8 +18,14 @@
 
 #include <rclcpp/rclcpp.hpp>
 
+// tf2 switched its LinearMath headers from .h to .hpp after Jazzy.
+#if __has_include(<tf2/LinearMath/Quaternion.hpp>)
+#include <tf2/LinearMath/Quaternion.hpp>
+#include <tf2/LinearMath/Vector3.hpp>
+#else
 #include <tf2/LinearMath/Quaternion.h>
 #include <tf2/LinearMath/Vector3.h>
+#endif
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <geometry_msgs/msg/pose.hpp>
@@ -41,7 +47,12 @@
 #include <interactive_markers/interactive_marker_server.hpp>
 #include <interactive_markers/menu_handler.hpp>
 
+// rqt_gui_cpp renamed plugin.h to plugin.hpp in Kilted and dropped plugin.h in Lyrical.
+#if __has_include(<rqt_gui_cpp/plugin.hpp>)
+#include <rqt_gui_cpp/plugin.hpp>
+#else
 #include <rqt_gui_cpp/plugin.h>
+#endif
 
 #include <QWidget>
 #include <QFileDialog>

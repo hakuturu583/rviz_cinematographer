@@ -17,10 +17,11 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <build_depend>qtbase5-dev</build_depend>
-  <build_export_depend>qtbase5-dev</build_export_depend>
-  <exec_depend>libqt5-core</exec_depend>
-  <exec_depend>libqt5-widgets</exec_depend>
+  <!-- Version-neutral Qt keys: resolve to Qt5 on jammy/noble and Qt6 on newer platforms -->
+  <build_depend>qt-base-dev</build_depend>
+  <build_export_depend>qt-base-dev</build_export_depend>
+  <exec_depend>libqtcore</exec_depend>
+  <exec_depend>libqtwidgets</exec_depend>
 
   <depend>ament_index_cpp</depend>
   <depend>rclcpp</depend>

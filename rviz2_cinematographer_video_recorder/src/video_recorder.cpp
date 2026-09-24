@@ -10,12 +10,30 @@
 #include <algorithm>
 #include <functional>
 
+// ament_index_cpp provides get_package_share_path() since Jazzy and removed
+// get_package_share_directory.hpp in Rolling, so pick whichever is available.
+#if __has_include(<ament_index_cpp/get_package_share_path.hpp>)
+#include <ament_index_cpp/get_package_share_path.hpp>
+#else
 #include <ament_index_cpp/get_package_share_directory.hpp>
+#endif
 
 #include <opencv2/imgcodecs/imgcodecs.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
 
 #include <sensor_msgs/image_encodings.hpp>
+
+namespace
+{
+std::string getPackageShareDirectory(const std::string& package_name)
+{
+#if __has_include(<ament_index_cpp/get_package_share_path.hpp>)
+  return ament_index_cpp::get_package_share_path(package_name).string();
+#else
+  return ament_index_cpp::get_package_share_directory(package_name);
+#endif
+}
+}  // namespace
 
 namespace rviz2_cinematographer_video_recorder
 {
@@ -86,7 +104,7 @@ void VideoRecorder::recordParamsCallback(const rviz2_cinematographer_msgs::msg::
     std::string path_to_watermark;
     try
     {
-      path_to_watermark = ament_index_cpp::get_package_share_directory("rviz2_cinematographer_video_recorder");
+      path_to_watermark = getPackageShareDirectory("rviz2_cinematographer_video_recorder");
     }
     catch(const std::exception& e)
     {

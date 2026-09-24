@@ -24,7 +24,21 @@ find_package(image_transport REQUIRED)
 find_package(rviz2_cinematographer_msgs REQUIRED)
 
 # Qt
-find_package(Qt5 REQUIRED COMPONENTS Core Widgets)
+# Build against the same Qt major version as rviz_common
+# (Qt5 up to Kilted, Qt6 from Lyrical on).
+if(Qt6_FOUND)
+  set(QT_VERSION_MAJOR 6)
+elseif(Qt5_FOUND)
+  set(QT_VERSION_MAJOR 5)
+else()
+  find_package(Qt6 QUIET COMPONENTS Core Widgets)
+  if(Qt6_FOUND)
+    set(QT_VERSION_MAJOR 6)
+  else()
+    set(QT_VERSION_MAJOR 5)
+  endif()
+endif()
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Widgets)
 set(CMAKE_AUTOMOC ON)
 
 add_library(${PROJECT_NAME} SHARED
@@ -49,8 +63,8 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   ${sensor_msgs_TARGETS}
   ${std_msgs_TARGETS}
   ${rviz2_cinematographer_msgs_TARGETS}
-  Qt5::Core
-  Qt5::Widgets
+  Qt${QT_VERSION_MAJOR}::Core
+  Qt${QT_VERSION_MAJOR}::Widgets
 )
 
 pluginlib_export_plugin_description_file(rviz_common plugin_description.xml)
