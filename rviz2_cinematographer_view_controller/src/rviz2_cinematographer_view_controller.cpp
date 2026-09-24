@@ -781,7 +781,19 @@ float CinematographerViewController::computeRelativeProgressInSpace(double relat
   }
 }
 
+#if RVIZ2_CINEMATOGRAPHER_RVIZ_COMMON_CHRONO_UPDATE
+void CinematographerViewController::update(std::chrono::nanoseconds dt, std::chrono::nanoseconds ros_dt)
+{
+  updateCameraMotion(static_cast<float>(dt.count()), static_cast<float>(ros_dt.count()));
+}
+#else
 void CinematographerViewController::update(float dt, float ros_dt)
+{
+  updateCameraMotion(dt, ros_dt);
+}
+#endif
+
+void CinematographerViewController::updateCameraMotion(float dt, float ros_dt)
 {
   processDeferredActions();
 

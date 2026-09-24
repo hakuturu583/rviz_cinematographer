@@ -67,6 +67,12 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
   Qt${QT_VERSION_MAJOR}::Widgets
 )
 
+# rviz_common 15.1.8 (Lyrical) introduced ViewController::update(std::chrono::nanoseconds, ...)
+# and rviz_common 16 (Rolling) removed update(float, float).
+if(rviz_common_VERSION VERSION_GREATER_EQUAL "15.1.8")
+  target_compile_definitions(${PROJECT_NAME} PUBLIC RVIZ2_CINEMATOGRAPHER_RVIZ_COMMON_CHRONO_UPDATE=1)
+endif()
+
 pluginlib_export_plugin_description_file(rviz_common plugin_description.xml)
 
 install(

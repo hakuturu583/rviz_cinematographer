@@ -34,6 +34,13 @@
 #ifndef RVIZ2_CINEMATOGRAPHER_VIEW_CONTROLLER_H
 #define RVIZ2_CINEMATOGRAPHER_VIEW_CONTROLLER_H
 
+// rviz_common 15.1.8 (Lyrical) replaced ViewController::update(float, float) with
+// update(std::chrono::nanoseconds, std::chrono::nanoseconds) and rviz_common 16 (Rolling)
+// removed the float overload. CMakeLists.txt sets this according to the rviz_common version.
+#ifndef RVIZ2_CINEMATOGRAPHER_RVIZ_COMMON_CHRONO_UPDATE
+#define RVIZ2_CINEMATOGRAPHER_RVIZ_COMMON_CHRONO_UPDATE 0
+#endif
+
 #include <chrono>
 #include <deque>
 #include <functional>
@@ -240,7 +247,14 @@ protected:  //methods
    * @param[in] dt      time difference to last call of update function.
    * @param[in] ros_dt  time difference in ros time to last call of update function.
    */
+#if RVIZ2_CINEMATOGRAPHER_RVIZ_COMMON_CHRONO_UPDATE
+  void update(std::chrono::nanoseconds dt, std::chrono::nanoseconds ros_dt) override;
+#else
   void update(float dt, float ros_dt) override;
+#endif
+
+  /** @brief Implementation of update() - dt and ros_dt are given in nanoseconds. */
+  void updateCameraMotion(float dt, float ros_dt);
 
   /** @brief Connects the signals/slots for position properties. */
   void connectPositionProperties();
