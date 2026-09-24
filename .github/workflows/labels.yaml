@@ -1,0 +1,50 @@
+# The release labels read by release.yaml.
+#
+#   sync    creates/updates the labels -- runs when this file changes on master, or by hand.
+#   check   fails a PR that carries more than one release label, so the mistake shows up
+#           before merging rather than as a failed release afterwards.
+
+name: Release labels
+
+on:
+  push:
+    branches: [master]
+    paths: [.github/workflows/labels.yaml]
+  workflow_dispatch:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - run: |
+          set -euo pipefail
+          gh label create "release:major" --force --color B60205 --description "Release a new major version (X.0.0) when merged"
+          gh label create "release:minor" --force --color FBCA04 --description "Release a new minor version (x.Y.0) when merged"
+          gh label create "release:patch" --force --color 0E8A16 --description "Release a new patch version (x.y.Z) when merged"
+
+  check:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+        run: |
+          set -euo pipefail
+          release_labels=$(echo "$LABELS" | jq -r '[.[] | select(startswith("release:"))] | join(", ")')
+          count=$(echo "$LABELS" | jq '[.[] | select(startswith("release:"))] | length')
+          if [ "$count" -gt 1 ]; then
+            echo "::error::More than one release label (${release_labels}) -- pick exactly one"
+            exit 1
+          fi
+          echo "Release on merge: ${release_labels:-none}"

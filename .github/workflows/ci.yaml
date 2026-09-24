@@ -4,13 +4,22 @@ on:
   push:
   pull_request:
   workflow_dispatch:
+  # The release workflow re-runs the build on the commit it is about to tag.
+  workflow_call:
+    inputs:
+      ref:
+        description: Git ref to build
+        type: string
+        required: true
   schedule:
     # Weekly build to catch upstream API changes (especially on rolling)
     - cron: "0 0 * * 0"
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Keyed on the ref being built, so a release run (unique tag) never cancels or is
+  # cancelled by the regular CI of its branch.
+  group: ci-${{ inputs.ref || github.ref }}
+  cancel-in-progress: ${{ !inputs.ref }}
 
 jobs:
   build:
@@ -30,6 +39,7 @@ jobs:
         uses: actions/checkout@v5
         with:
           path: src/rviz2_cinematographer
+          ref: ${{ inputs.ref }}
 
       - name: Install dependencies
         run: |

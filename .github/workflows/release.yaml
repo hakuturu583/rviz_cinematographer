@@ -1,0 +1,310 @@
+# Cuts releases and hands them to bloom.
+#
+# The mechanism is the one from hakuturu583/simple_lanelet2 (itself borrowed from
+# tier4/splatsim). There are three ways in, and the first is the everyday one:
+#
+#   push to master       When a merged PR carries exactly one `release:major|minor|patch`
+#                        label, the `release` job bumps every package.xml, writes the
+#                        CHANGELOG.rst sections, commits, tags `X.Y.Z` and the tag is
+#                        verified, published as a GitHub release and bloomed -- all in
+#                        this one run. A PR without a release label releases nothing.
+#   workflow_dispatch    The same, with the bump level (or an exact version) chosen by
+#                        hand. `current` tags the version already in package.xml, which
+#                        is how the very first release (0.2.0) is cut.
+#   push an X.Y.Z tag    A hand-cut tag is verified, published and bloomed directly.
+#
+# Tags are the bare version (no `v`), the ROS convention bloom's default track config
+# (`release_tag: :{version}`) expects.
+#
+# Everything happens in this one workflow *on purpose*: the auto-release tag is pushed
+# with GITHUB_TOKEN, and a token-pushed tag does not start new workflow runs, so an
+# `on: push: tags` workflow would never see it.
+#
+# bloom needs, once, outside this repository (see the Release section of README.md):
+#   - a release repository and a track per ROS distro, created by one interactive
+#     `bloom-release --new-track` run per distro,
+#   - a fork of ros/rosdistro owned by the token's user,
+#   - the `BLOOM_GITHUB_TOKEN` secret: a classic PAT with `public_repo` and `workflow`
+#     scope that can push to the release repository.
+# Until the secret exists the bloom job only warns, so tagging and GitHub releases work
+# on their own.
+
+name: Release
+
+on:
+  push:
+    branches: [master]
+    tags: ["[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump (current = release the version already in package.xml)"
+        type: choice
+        options: [patch, minor, major, current]
+        default: patch
+      version:
+        description: "Exact X.Y.Z version (overrides bump)"
+        type: string
+        required: false
+      bloom:
+        description: "Run bloom-release after tagging"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  # Name of this repository in rosdistro's distribution.yaml files.
+  BLOOM_REPOSITORY: ${{ vars.BLOOM_REPOSITORY || 'rviz2_cinematographer' }}
+
+jobs:
+  # Read the release label off the merged PR (or the dispatch inputs) and, if there is
+  # a release to make, bump the version and push the tag. Skipped on a tag push.
+  release:
+    name: cut the release tag
+    if: >-
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    outputs:
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      - name: decide the bump level
+        id: level
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT: ${{ github.event_name }}
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            spec="${INPUT_VERSION:-$INPUT_BUMP}"
+            echo "spec=${spec}" >> "$GITHUB_OUTPUT"
+            echo "Requested by hand: ${spec}"
+            exit 0
+          fi
+
+          pr_json=$(gh api "repos/${{ github.repository }}/commits/${{ github.sha }}/pulls" \
+            --jq '.[0] // empty' 2>/dev/null || true)
+          if [ -z "$pr_json" ]; then
+            echo "No PR associated with this push -- nothing to release"
+            echo "spec=none" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          labels=$(echo "$pr_json" | jq -r '[.labels[].name] | join(",")')
+          spec=none
+          count=0
+          for lvl in major minor patch; do
+            if echo ",$labels," | grep -q ",release:${lvl},"; then
+              spec=$lvl
+              count=$((count + 1))
+            fi
+          done
+          if [ "$count" -gt 1 ]; then
+            echo "::error::More than one release label on the PR -- pick exactly one"
+            exit 1
+          fi
+          echo "spec=${spec}" >> "$GITHUB_OUTPUT"
+          echo "PR #$(echo "$pr_json" | jq -r .number) labels: ${labels:-<none>} -> ${spec}"
+
+      - uses: actions/checkout@v5
+        if: steps.level.outputs.spec != 'none'
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0  # the changelog is generated from the commits since the last tag
+
+      - name: bump package.xml and CHANGELOG.rst of every package
+        if: steps.level.outputs.spec != 'none'
+        id: bump
+        run: |
+          set -euo pipefail
+          version=$(python3 tools/bump_version.py "${{ steps.level.outputs.spec }}")
+          echo "tag=${version}" >> "$GITHUB_OUTPUT"
+          echo "Releasing ${version} (${{ steps.level.outputs.spec }})"
+          git --no-pager diff --stat
+
+      - name: fail if the tag already exists
+        if: steps.level.outputs.spec != 'none'
+        run: |
+          if git rev-parse -q --verify "refs/tags/${{ steps.bump.outputs.tag }}" >/dev/null; then
+            echo "::error::Tag ${{ steps.bump.outputs.tag }} already exists"
+            exit 1
+          fi
+
+      - name: commit, tag and push
+        if: steps.level.outputs.spec != 'none'
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+          BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- '*/package.xml' '*/CHANGELOG.rst'
+          # `current` (the first release) has nothing to commit and only tags.
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): ${TAG}"
+            git push origin "HEAD:${BRANCH}"
+          fi
+          git tag -a "${TAG}" -m "Release ${TAG}"
+          git push origin "${TAG}"
+
+  # One place to work out, for all entry points, which tag to publish.
+  # Runs even when `release` is skipped (tag push).
+  resolve:
+    name: resolve what to release
+    needs: [release]
+    if: ${{ !cancelled() && needs.release.result != 'failure' }}
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.r.outputs.tag }}
+      bloom: ${{ steps.r.outputs.bloom }}
+      distros: ${{ steps.r.outputs.distros }}
+    steps:
+      - id: r
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REF_NAME: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+          INPUT_BLOOM: ${{ inputs.bloom }}
+          # Space separated; override with the BLOOM_ROSDISTROS repository variable.
+          DISTROS: ${{ vars.BLOOM_ROSDISTROS || 'humble jazzy kilted lyrical rolling' }}
+        run: |
+          set -euo pipefail
+          tag=""
+          if [ "$EVENT" = "push" ] && [[ "$REF" == refs/tags/* ]]; then
+            tag="$REF_NAME"          # a hand-cut tag
+          else
+            tag="${RELEASE_TAG:-}"   # empty when the merged PR had no release label
+          fi
+          bloom=true
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$INPUT_BLOOM" != "true" ]; then
+            bloom=false
+          fi
+          distros=$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1].split()))' "$DISTROS")
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "bloom=$bloom" >> "$GITHUB_OUTPUT"
+          echo "distros=$distros" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag:-<none>} bloom=$bloom distros=$distros"
+
+  # A release can't be taken back from the ROS buildfarm, so the version is checked and
+  # the build re-run on the tagged commit rather than trusting CI on the merge.
+  check-version:
+    name: the tag must match every package.xml
+    needs: [resolve]
+    # `release` is skipped on a tag push, and a skipped ancestor would skip this job
+    # under the implicit success() -- hence the explicit conditions here and below.
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.tag != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+      - env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          version=$(python3 tools/bump_version.py current)
+          echo "tag=$TAG package.xml=$version"
+          test "$TAG" = "$version"
+
+  build:
+    name: build the tag
+    needs: [resolve]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.tag != '' }}
+    uses: ./.github/workflows/ci.yaml
+    with:
+      ref: ${{ needs.resolve.outputs.tag }}
+
+  github-release:
+    name: GitHub release
+    needs: [resolve, check-version, build]
+    if: ${{ !cancelled() && needs.check-version.result == 'success' && needs.build.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub release $TAG already exists"
+          else
+            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+          fi
+
+  # One distro at a time: every track pushes the shared `upstream` branch of the
+  # release repository, so parallel runs would race each other.
+  bloom:
+    name: bloom-release (${{ matrix.ros_distro }})
+    needs: [resolve, github-release]
+    if: ${{ !cancelled() && needs.github-release.result == 'success' && needs.resolve.outputs.bloom == 'true' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        ros_distro: ${{ fromJSON(needs.resolve.outputs.distros) }}
+    steps:
+      - name: check for the bloom token
+        id: token
+        env:
+          TOKEN: ${{ secrets.BLOOM_GITHUB_TOKEN }}
+        run: |
+          if [ -z "$TOKEN" ]; then
+            echo "::warning::BLOOM_GITHUB_TOKEN is not set -- skipping bloom-release for ${{ matrix.ros_distro }}. See the Release section of README.md."
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v6
+        if: steps.token.outputs.present == 'true'
+        with:
+          python-version: "3.12"
+
+      - name: install bloom and initialise rosdep
+        if: steps.token.outputs.present == 'true'
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade bloom
+          sudo "$(command -v rosdep)" init
+          rosdep update --rosdistro "${{ matrix.ros_distro }}"
+
+      - name: configure credentials for bloom and git
+        if: steps.token.outputs.present == 'true'
+        env:
+          TOKEN: ${{ secrets.BLOOM_GITHUB_TOKEN }}
+          GH_USER: ${{ vars.BLOOM_GITHUB_USER || github.repository_owner }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.config
+          python -c 'import json, sys; print(json.dumps({"github_user": sys.argv[1], "oauth_token": sys.argv[2]}))' \
+            "$GH_USER" "$TOKEN" > ~/.config/bloom
+          chmod 600 ~/.config/bloom
+          # bloom clones and pushes the release repository over https.
+          git config --global url."https://${GH_USER}:${TOKEN}@github.com/".insteadOf "https://github.com/"
+          git config --global user.name "${{ vars.BLOOM_GIT_NAME || 'github-actions[bot]' }}"
+          git config --global user.email "${{ vars.BLOOM_GIT_EMAIL || '41898282+github-actions[bot]@users.noreply.github.com' }}"
+
+      - name: bloom-release
+        if: steps.token.outputs.present == 'true'
+        env:
+          # These prompts only appear on a repository's first release, which is done by hand.
+          BLOOM_DONT_ASK_FOR_DOCS: "1"
+          BLOOM_DONT_ASK_FOR_SOURCE: "1"
+          BLOOM_DONT_ASK_FOR_MAINTENANCE_STATUS: "1"
+        run: |
+          # stdin is closed so that any prompt bloom still has (a missing track, a missing
+          # rosdistro fork) aborts the job instead of hanging it.
+          bloom-release --non-interactive --no-web \
+            --rosdistro "${{ matrix.ros_distro }}" --track "${{ matrix.ros_distro }}" \
+            "$BLOOM_REPOSITORY" < /dev/null
