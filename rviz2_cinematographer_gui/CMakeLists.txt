@@ -33,10 +33,13 @@ else()
   set(YAML_CPP_TARGET yaml-cpp)
 endif()
 
-# Build against the same Qt major version as qt_gui_cpp
-# (Qt5 up to Kilted, Qt6 from Lyrical on). Newer qt_gui_cpp exports it.
+# Build against the same Qt major version as qt_gui_cpp (Qt5 up to Kilted, Qt6 from
+# Lyrical on). Lyrical exports qt_gui_cpp_USE_QT_MAJOR_VERSION, Rolling finds Qt6 in its
+# CMake extras and older distros don't export any Qt information (always Qt5).
 if(DEFINED qt_gui_cpp_USE_QT_MAJOR_VERSION)
   set(QT_VERSION_MAJOR ${qt_gui_cpp_USE_QT_MAJOR_VERSION})
+elseif(Qt6_FOUND)
+  set(QT_VERSION_MAJOR 6)
 else()
   set(QT_VERSION_MAJOR 5)
 endif()
