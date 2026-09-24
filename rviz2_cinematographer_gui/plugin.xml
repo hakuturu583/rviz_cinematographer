@@ -1,0 +1,15 @@
+<library path="rviz2_cinematographer_gui_plugin">
+    <class name="rviz2_cinematographer_gui/RvizCinematographerGUI" type="rviz2_cinematographer_gui::RvizCinematographerGUI" base_class_type="rqt_gui_cpp::Plugin">
+        <description>
+            Manipulate the rviz camera using trajectories and record the resulting views.
+        </description>
+        <qtgui>
+            <group>
+                <label>Visualization</label>
+            </group>
+            <label>Rviz2 Cinematographer</label>
+            <icon type="theme">system-help</icon>
+            <statustip>Create and edit trajectories for the rviz camera and record them to a video.</statustip>
+        </qtgui>
+    </class>
+</library>
