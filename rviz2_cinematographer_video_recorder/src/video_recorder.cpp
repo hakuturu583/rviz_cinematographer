@@ -60,9 +60,17 @@ VideoRecorder::VideoRecorder(const rclcpp::NodeOptions& options)
     "/rviz/finished_rendering_trajectory", rclcpp::QoS(1),
     std::bind(&VideoRecorder::renderingFinishedCallback, this, std::placeholders::_1));
 
+  // image_transport takes node interfaces and an rclcpp::QoS since Lyrical and dropped the
+  // rclcpp::Node* overloads in Rolling. QoS(10) matches the former rmw_qos_profile_default.
+#if __has_include(<image_transport/node_interfaces.hpp>)
+  image_sub_ = image_transport::create_subscription(*this, "/rviz/view_image",
+                                                    std::bind(&VideoRecorder::imageCallback, this, std::placeholders::_1),
+                                                    "raw", rclcpp::QoS(10));
+#else
   image_sub_ = image_transport::create_subscription(this, "/rviz/view_image",
                                                     std::bind(&VideoRecorder::imageCallback, this, std::placeholders::_1),
                                                     "raw");
+#endif
 
   // thread processing the queued images
   process_images_thread_ = std::thread(&VideoRecorder::processImages, this);

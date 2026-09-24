@@ -253,7 +253,13 @@ void CinematographerViewController::onInitialize()
   finished_rendering_trajectory_pub_ = node->create_publisher<rviz2_cinematographer_msgs::msg::Finished>("/rviz/finished_rendering_trajectory", rclcpp::QoS(1));
   delete_pub_ = node->create_publisher<std_msgs::msg::Empty>("/rviz/delete", rclcpp::QoS(1));
 
+  // image_transport takes node interfaces and an rclcpp::QoS since Lyrical and dropped the
+  // rclcpp::Node* overloads in Rolling. QoS(10) matches the former rmw_qos_profile_default.
+#if __has_include(<image_transport/node_interfaces.hpp>)
+  image_pub_ = image_transport::create_publisher(*node, "/rviz/view_image", rclcpp::QoS(10));
+#else
   image_pub_ = image_transport::create_publisher(node.get(), "/rviz/view_image");
+#endif
 
   record_params_sub_ = node->create_subscription<rviz2_cinematographer_msgs::msg::Record>(
     "/rviz/record", rclcpp::QoS(1),

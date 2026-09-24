@@ -18,14 +18,8 @@
 
 #include <rclcpp/rclcpp.hpp>
 
-// tf2 switched its LinearMath headers from .h to .hpp after Jazzy.
-#if __has_include(<tf2/LinearMath/Quaternion.hpp>)
 #include <tf2/LinearMath/Quaternion.hpp>
 #include <tf2/LinearMath/Vector3.hpp>
-#else
-#include <tf2/LinearMath/Quaternion.h>
-#include <tf2/LinearMath/Vector3.h>
-#endif
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 
 #include <geometry_msgs/msg/pose.hpp>
